@@ -334,10 +334,8 @@ function parseTSPFile(content: string): City[] {
       inNodeSection = true;
       continue;
     }
-    if (trimmed === 'EOF' || trimmed === '') {
-      if (inNodeSection) break;
-      continue;
-    }
+    if (trimmed === 'EOF') break;
+    if (trimmed === '' || trimmed.startsWith('DISPLAY') || trimmed.startsWith('COMMENT')) continue;
     if (inNodeSection) {
       const parts = trimmed.split(/\s+/);
       if (parts.length >= 3) {
@@ -666,14 +664,6 @@ function TourVisualization({ cities, tour, solving }: { cities: City[]; tour: nu
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
-    const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    ctx.scale(dpr, dpr);
-    
-    const W = rect.width;
-    const H = rect.height;
     const padding = 35;
     
     // Normalize city coordinates
@@ -684,10 +674,15 @@ function TourVisualization({ cities, tour, solving }: { cities: City[]; tour: nu
     const rangeX = maxX - minX || 1;
     const rangeY = maxY - minY || 1;
     
+    let W = 0;
+    let H = 0;
+    
     const scaleX = (x: number) => padding + ((x - minX) / rangeX) * (W - 2 * padding);
     const scaleY = (y: number) => padding + ((y - minY) / rangeY) * (H - 2 * padding);
     
     const draw = () => {
+      if (W === 0 || H === 0) return;
+      
       ctx.fillStyle = '#0a0a0c';
       ctx.fillRect(0, 0, W, H);
       
@@ -784,13 +779,30 @@ function TourVisualization({ cities, tour, solving }: { cities: City[]; tour: nu
     };
     
     progressRef.current = solving ? 0 : 1;
+    
+    // Use ResizeObserver to handle canvas sizing race condition
+    const ro = new ResizeObserver(() => {
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform before scaling
+      ctx.scale(dpr, dpr);
+      W = rect.width;
+      H = rect.height;
+      draw();
+    });
+    ro.observe(canvas);
+    
+    // Initial draw call
     draw();
     
     if (solving) {
       animRef.current = requestAnimationFrame(draw);
     }
     
-    return () => cancelAnimationFrame(animRef.current);
+    return () => { ro.disconnect(); cancelAnimationFrame(animRef.current); };
   }, [cities, tour, solving]);
   
   if (cities.length === 0) {
@@ -1016,11 +1028,18 @@ export default function PSOTSPSolver() {
     setWsConnected(false);
     setOptimalTour([]);
 
-    // Parse cities from file if not already loaded (for uploaded files)
-    if (!isRandomInstance && cities.length === 0) {
+    // Parse cities from file - use local variable to avoid stale closure
+    let currentCities: City[] = cities;
+    if (!isRandomInstance || cities.length === 0) {
       const content = await file.text();
-      const parsedCities = parseTSPFile(content);
-      setCities(parsedCities);
+      currentCities = parseTSPFile(content);
+      setCities(currentCities);
+    }
+    
+    if (currentCities.length === 0) {
+      setError('Could not parse TSP file — make sure it is a valid TSPLib .tsp file.');
+      setSolving(false);
+      return;
     }
 
     // Scroll to viz section immediately for smooth experience
@@ -1031,12 +1050,7 @@ export default function PSOTSPSolver() {
 
     if (!apiOk) {
       // Demo mode — simulate PSO optimization with proper tour evolution
-      const currentCities = cities.length > 0 ? cities : parseTSPFile(await file.text());
-      if (currentCities.length === 0) {
-        setError('Could not parse TSP file');
-        setSolving(false);
-        return;
-      }
+      // currentCities is already defined and validated above
       
       // Simulate PSO optimization
       let bestTour = generateRandomTour(currentCities);
@@ -1143,7 +1157,7 @@ export default function PSOTSPSolver() {
             </button>
             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
               <div style={{ width: 28, height: 28, borderRadius: 8, background: 'linear-gradient(140deg,#5E6AD2 0%,rgba(94,106,210,0.35) 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, boxShadow: '0 0 18px rgba(94,106,210,0.45)' }}>⬡</div>
-              <span style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-0.025em', color: '#EDEDEF' }}>pso<span style={{ color: '#5E6AD2' }}>·</span>tsp</span>
+              <span style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-0.025em', color: '#EDEDEF' }}>Metaheuristic Project <span style={{ color: '#5E6AD2' }}>ROMARIN</span></span>
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '5px 13px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 9999 }}>
@@ -1158,12 +1172,12 @@ export default function PSOTSPSolver() {
           <div className="pso-s1"><span className="pso-tag"><span className="pso-tag-dot" />Particle Swarm Optimization</span></div>
           <div className="pso-s2">
             <h1 style={{ fontSize: 'clamp(44px,8vw,88px)', fontWeight: 700, letterSpacing: '-0.035em', lineHeight: 1.0, userSelect: 'none' }}>
-              <span className="pso-hero-title">Solve the</span><br /><span className="pso-shimmer-text">Optimal Tour</span>
+              <span className="pso-hero-title">Solve TSP with</span><br /><span className="pso-shimmer-text">Particle Swarm Opt.</span>
             </h1>
           </div>
           <div className="pso-s3" style={{ maxWidth: 440 }}>
             <p style={{ fontSize: 'clamp(14px,1.8vw,17px)', color: '#8A8F98', lineHeight: 1.65, letterSpacing: '-0.01em' }}>
-              Harness collective swarm intelligence to conquer the Traveling Salesperson Problem. Upload a{' '}
+              Harness collective swarm intelligence to solve the Traveling Salesperson Problem. Upload a{' '}
               <code className="pso-mono" style={{ color: '#5E6AD2', fontSize: '0.88em' }}>.tsp</code> file and watch the swarm converge.
             </p>
           </div>
@@ -1232,7 +1246,7 @@ export default function PSOTSPSolver() {
               {solving
                 ? 'Swarm converging — particles negotiating the shortest tour through every city.'
                 : solved
-                  ? 'Convergence complete. Optimal tour found — cities connected by the best path discovered.'
+                  ? 'Convergence complete. Tour found — cities connected by the best path discovered by the swarm.'
                   : `${params.swarmSize} particles will explore the solution space, guided by personal and collective memory.`}
             </p>
           </div>
@@ -1268,7 +1282,7 @@ export default function PSOTSPSolver() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                   <div style={{ width: 5, height: 5, borderRadius: '50%', background: solving ? '#f59e0b' : solved ? '#10b981' : '#5E6AD2', animation: solving ? 'dotBlink 1s ease-in-out infinite' : 'none', boxShadow: solving ? '0 0 8px rgba(245,158,11,0.8)' : solved ? '0 0 8px rgba(16,185,129,0.8)' : '0 0 8px rgba(94,106,210,0.8)' }} />
                   <span className="pso-mono" style={{ fontSize: 10, color: '#4b5563', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-                    {solving ? 'converging swarm' : solved ? 'optimal tour found' : 'exploration mode'}
+                    {solving ? 'converging swarm' : solved ? 'tour found' : 'exploration mode'}
                   </span>
                 </div>
                 <span className="pso-mono" style={{ fontSize: 10, color: '#374151' }}>
