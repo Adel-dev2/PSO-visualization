@@ -41,8 +41,7 @@ export default function SwarmBackground() {
 
     // Configuration
     const PARTICLE_COUNT = 2500;
-    const SPHERE_RADIUS = Math.min(W, H) * 0.28;
-    const EXPLOSION_DURATION = 2.5; // seconds
+    const SPHERE_RADIUS = Math.min(W, H) * 0.48;
     
     // Create particle geometry
     const geometry = new THREE.BufferGeometry();
@@ -53,13 +52,8 @@ export default function SwarmBackground() {
     const phases = new Float32Array(PARTICLE_COUNT);
     const sizes = new Float32Array(PARTICLE_COUNT);
 
-    // Initialize particles - all start at center
+    // Initialize particles - start near targets with small random offset
     for (let i = 0; i < PARTICLE_COUNT; i++) {
-      // Start position: center
-      positions[i * 3] = 0;
-      positions[i * 3 + 1] = 0;
-      positions[i * 3 + 2] = 0;
-
       // Target position: evenly distributed on sphere surface using fibonacci sphere
       const phi = Math.acos(1 - 2 * (i + 0.5) / PARTICLE_COUNT);
       const theta = Math.PI * (1 + Math.sqrt(5)) * (i + 0.5);
@@ -71,13 +65,15 @@ export default function SwarmBackground() {
       targetPositions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
       targetPositions[i * 3 + 2] = r * Math.cos(phi);
 
-      // Initial velocity: outward explosion
-      const speed = 15 + Math.random() * 20;
-      const angle1 = Math.random() * Math.PI * 2;
-      const angle2 = Math.random() * Math.PI;
-      velocities[i * 3] = Math.sin(angle2) * Math.cos(angle1) * speed;
-      velocities[i * 3 + 1] = Math.sin(angle2) * Math.sin(angle1) * speed;
-      velocities[i * 3 + 2] = Math.cos(angle2) * speed;
+      // Start near target with a small random offset instead of center
+      positions[i * 3] = targetPositions[i * 3] * 0.01 + (Math.random() - 0.5) * 10;
+      positions[i * 3 + 1] = targetPositions[i * 3 + 1] * 0.01 + (Math.random() - 0.5) * 10;
+      positions[i * 3 + 2] = targetPositions[i * 3 + 2] * 0.01 + (Math.random() - 0.5) * 10;
+
+      // Initial velocity: zero (no explosion)
+      velocities[i * 3] = 0;
+      velocities[i * 3 + 1] = 0;
+      velocities[i * 3 + 2] = 0;
 
       // Random phase for organic movement
       phases[i] = Math.random() * Math.PI * 2;
@@ -85,11 +81,11 @@ export default function SwarmBackground() {
       // Random sizes
       sizes[i] = 2 + Math.random() * 3;
 
-      // Colors: blue/indigo/white spectrum
+      // Colors: purple/white spectrum
       const brightness = 0.6 + Math.random() * 0.4;
-      colors[i * 3] = brightness * 0.4;      // R
-      colors[i * 3 + 1] = brightness * 0.45; // G
-      colors[i * 3 + 2] = brightness * 1.0;  // B
+      colors[i * 3] = brightness * 0.85;     // R (high for white-purple)
+      colors[i * 3 + 1] = brightness * 0.2;  // G (low for purple)
+      colors[i * 3 + 2] = brightness * 1.0;  // B (full blue)
     }
 
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -156,11 +152,6 @@ export default function SwarmBackground() {
       animationId = requestAnimationFrame(animate);
       
       const elapsed = (Date.now() - startTime) / 1000;
-      const explosionProgress = Math.min(1, elapsed / EXPLOSION_DURATION);
-      
-      // Easing for smooth transition
-      const easeOutCubic = 1 - Math.pow(1 - explosionProgress, 3);
-      const easeOutQuint = 1 - Math.pow(1 - explosionProgress, 5);
       
       const posAttr = geometry.attributes.position as THREE.BufferAttribute;
       const colAttr = geometry.attributes.color as THREE.BufferAttribute;
@@ -168,79 +159,54 @@ export default function SwarmBackground() {
       for (let i = 0; i < PARTICLE_COUNT; i++) {
         const i3 = i * 3;
         
-        if (explosionProgress < 1) {
-          // Explosion phase: particles move outward then settle to targets
-          
-          // Apply velocity with damping
-          const damping = 0.94 + easeOutCubic * 0.05;
-          velocities[i3] *= damping;
-          velocities[i3 + 1] *= damping;
-          velocities[i3 + 2] *= damping;
-          
-          // Attraction to target position increases over time
-          const attraction = easeOutQuint * 0.08;
-          const dx = targetPositions[i3] - positions[i3];
-          const dy = targetPositions[i3 + 1] - positions[i3 + 1];
-          const dz = targetPositions[i3 + 2] - positions[i3 + 2];
-          
-          velocities[i3] += dx * attraction;
-          velocities[i3 + 1] += dy * attraction;
-          velocities[i3 + 2] += dz * attraction;
-          
-          positions[i3] += velocities[i3];
-          positions[i3 + 1] += velocities[i3 + 1];
-          positions[i3 + 2] += velocities[i3 + 2];
-        } else {
-          // Swarm phase: particles orbit and breathe
-          
-          // Orbital movement around target position
-          const orbitSpeed = 0.3 + (i % 10) * 0.02;
-          const orbitRadius = 8 + Math.sin(elapsed * 0.5 + phases[i]) * 4;
-          const orbitAngle = elapsed * orbitSpeed + phases[i];
-          
-          // Calculate orbital offset
-          const orbX = Math.cos(orbitAngle) * orbitRadius;
-          const orbY = Math.sin(orbitAngle * 0.7 + phases[i]) * orbitRadius;
-          const orbZ = Math.sin(orbitAngle * 0.5) * orbitRadius * 0.5;
-          
-          // Target with orbital offset
-          const targetX = targetPositions[i3] + orbX;
-          const targetY = targetPositions[i3 + 1] + orbY;
-          const targetZ = targetPositions[i3 + 2] + orbZ;
-          
-          // Smooth movement toward orbital target
-          positions[i3] += (targetX - positions[i3]) * 0.02;
-          positions[i3 + 1] += (targetY - positions[i3 + 1]) * 0.02;
-          positions[i3 + 2] += (targetZ - positions[i3 + 2]) * 0.02;
-          
-          // Breathing sphere effect - subtle radius pulsing
-          const breathe = 1 + Math.sin(elapsed * 0.8) * 0.02;
-          const currentDist = Math.sqrt(
-            positions[i3] * positions[i3] + 
-            positions[i3 + 1] * positions[i3 + 1] + 
-            positions[i3 + 2] * positions[i3 + 2]
-          );
-          const targetDist = Math.sqrt(
-            targetPositions[i3] * targetPositions[i3] + 
-            targetPositions[i3 + 1] * targetPositions[i3 + 1] + 
-            targetPositions[i3 + 2] * targetPositions[i3 + 2]
-          ) * breathe;
-          
-          if (currentDist > 0.1) {
-            const scale = (targetDist / currentDist - 1) * 0.01;
-            positions[i3] += positions[i3] * scale;
-            positions[i3 + 1] += positions[i3 + 1] * scale;
-            positions[i3 + 2] += positions[i3 + 2] * scale;
-          }
+        // Swarm phase: particles orbit and breathe
+        
+        // Orbital movement around target position
+        const orbitSpeed = 0.3 + (i % 10) * 0.02;
+        const orbitRadius = 8 + Math.sin(elapsed * 0.5 + phases[i]) * 4;
+        const orbitAngle = elapsed * orbitSpeed + phases[i];
+        
+        // Calculate orbital offset
+        const orbX = Math.cos(orbitAngle) * orbitRadius;
+        const orbY = Math.sin(orbitAngle * 0.7 + phases[i]) * orbitRadius;
+        const orbZ = Math.sin(orbitAngle * 0.5) * orbitRadius * 0.5;
+        
+        // Target with orbital offset
+        const targetX = targetPositions[i3] + orbX;
+        const targetY = targetPositions[i3 + 1] + orbY;
+        const targetZ = targetPositions[i3 + 2] + orbZ;
+        
+        // Smooth movement toward orbital target
+        positions[i3] += (targetX - positions[i3]) * 0.02;
+        positions[i3 + 1] += (targetY - positions[i3 + 1]) * 0.02;
+        positions[i3 + 2] += (targetZ - positions[i3 + 2]) * 0.02;
+        
+        // Breathing sphere effect - subtle radius pulsing
+        const breathe = 1 + Math.sin(elapsed * 0.8) * 0.02;
+        const currentDist = Math.sqrt(
+          positions[i3] * positions[i3] + 
+          positions[i3 + 1] * positions[i3 + 1] + 
+          positions[i3 + 2] * positions[i3 + 2]
+        );
+        const targetDist = Math.sqrt(
+          targetPositions[i3] * targetPositions[i3] + 
+          targetPositions[i3 + 1] * targetPositions[i3 + 1] + 
+          targetPositions[i3 + 2] * targetPositions[i3 + 2]
+        ) * breathe;
+        
+        if (currentDist > 0.1) {
+          const scale = (targetDist / currentDist - 1) * 0.01;
+          positions[i3] += positions[i3] * scale;
+          positions[i3 + 1] += positions[i3 + 1] * scale;
+          positions[i3 + 2] += positions[i3 + 2] * scale;
         }
         
         // Color pulsing - creates twinkling effect
         const pulse = 0.6 + Math.sin(elapsed * 2 + phases[i] * 3) * 0.2;
-        const speedBoost = explosionProgress < 1 ? (1 - explosionProgress) * 0.3 : 0;
-        const brightness = pulse + speedBoost;
+        const brightness = pulse;
         
-        colors[i3] = brightness * 0.45;
-        colors[i3 + 1] = brightness * 0.5;
+        colors[i3] = brightness * 0.85;
+        colors[i3 + 1] = brightness * 0.2;
         colors[i3 + 2] = brightness * 1.0;
       }
       
